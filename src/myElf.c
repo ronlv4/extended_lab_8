@@ -15,11 +15,16 @@
 #define MAX_FILE_NAME_LENGTH 1024
 #define COL_WIDTH 30
 
+struct elf_file {
+    Elf32_Ehdr elf_header;
+    Elf32_Shdr sec_header;
+    Elf32_Phdr prog_header;
+};
 struct state {
     int debug_mode;
     int current_fd;
     void *map_start;
-    Elf32_Ehdr *elf_header;
+    struct elf_file *elf_headers;
     struct stat fd_stat;
 } s = {
         0,
@@ -104,25 +109,32 @@ void examine_elf_file() {
         exit(errno);
     }
 //    write(STDOUT_FILENO, p, 100);
-    s.header = (Elf32_Ehdr *) s.map_start;
+    s.elf_headers->elf_header = (Elf32_Ehdr *) s.map_start;
+//    if ((s.map_start = mmap(s.map_start + s.elf_headers->elf_header.e_shoff, s.fd_stat.st_size, PROT_READ, MAP_SHARED, s.current_fd, 0)) == MAP_FAILED) {
+//        perror("mmap failed");
+//        reset_current_fd();
+//        exit(errno);
+//    }
+    s.elf_headers->sec_header = (Elf32_Shdr *) (s.map_start + s.elf_headers->elf_header.e_shoff);
     print_column_data_str(0, COL_WIDTH, "Elf Header");
 //    printf("ELF Header:\n");
-    printf("  %s:%3x%3x%3x\n", "Magic", s.header->e_ident[EI_MAG0], s.header->e_ident[EI_MAG1],
-           s.header->e_ident[EI_MAG2]);
+    printf("  %s:%3x%3x%3x\n", "Magic", s.elf_headers->elf_header.e_ident[EI_MAG0], s.elf_headers->elf_header.e_ident[EI_MAG1],
+           s.elf_headers->elf_header.e_ident[EI_MAG2]);
     // TODO: print data encoding scheme
-    printf("Entry point address: %#10x\n", s.header->e_entry);
+    printf("Entry point address: %#10x\n", s.elf_headers->elf_header.e_entry);
     print_column_data_str(3, COL_WIDTH, "Start of section headers:");
-    print_column_data_int(0, COL_WIDTH, s.header->e_shoff);
+    print_column_data_int(0, COL_WIDTH, s.elf_headers->elf_header.e_shoff);
     print_column_data_str(3, COL_WIDTH, "Number of section headers:");
-    print_column_data_int(0, COL_WIDTH, s.header->e_shnum);
+    print_column_data_int(0, COL_WIDTH, s.elf_headers->elf_header.e_shnum);
     print_column_data_str(3, COL_WIDTH, "Size of section headers:");
-    print_column_data_int(0, COL_WIDTH, s.header->e_shentsize);
+    print_column_data_int(0, COL_WIDTH, s.elf_headers->elf_header.e_shentsize);
     print_column_data_str(3, COL_WIDTH, "Start of program headers:");
-    print_column_data_int(0, COL_WIDTH, s.header->e_phoff);
+    print_column_data_int(0, COL_WIDTH, s.elf_headers->elf_header.e_phoff);
     print_column_data_str(3, COL_WIDTH, "Number of program headers:");
-    print_column_data_int(0, COL_WIDTH, s.header->e_phnum);
+    print_column_data_int(0, COL_WIDTH, s.elf_headers->elf_header.e_phnum);
     print_column_data_str(3, COL_WIDTH, "Size of program headers:");
-    print_column_data_int(0, COL_WIDTH, s.header->e_phentsize);
+    print_column_data_int(0, COL_WIDTH, s.elf_headers->elf_header.e_phentsize);
+    printf("%d\n", s.elf_headers->sec_header.sh_addralign);
 }
 
 void reset_current_fd() {
