@@ -14,16 +14,43 @@
 
 #define MAX_FILE_NAME_LENGTH 1024
 #define COL_WIDTH 30
-#define INDENT_SIZE 4
+#define INDENT_SIZE 2
 
 struct elf_file {
     Elf32_Ehdr *elf_header;
     Elf32_Shdr *sec_header;
     Elf32_Phdr *prog_header;
+    Elf32_Sym *sym_header;
 } ef = {
         0, 0, 0
 };
 
+struct section_col_sizes {
+    int INDEX;
+    int NAME;
+    int TYPE;
+    int ADDR;
+    int OFFSET;
+    int SIZE;
+    int FLAGS;
+} sec_col_sizes = {
+        5, 18, 10, 8, 6, 6, 2
+};
+
+struct symbols_col_sizes {
+    int INDEX;
+    int VALUE;
+    int SECTION_INDEX;
+    int SECTION_NAME;
+    int SYMBOL_NAME;
+} sym_col_sizes = {
+        8, 8, 15, 20, 20
+};
+
+char *section_types[15] = {"NULL", "PROGBITS", "SYMTAB", "STRTAB", "RELA", "HASH", "DYNAMIC", "NOTE", "NOBITS", "REL",
+                           "SHLIB", "DYNSYM", "LOPROC", "LOUSER", "HIUSER"};
+
+char *section_flags = "WAXMMSIL";
 
 struct state {
     int debug_mode;
@@ -55,24 +82,27 @@ void print_symbols();
 
 void quit();
 
-void print_menu();
+void print_menu(struct fun_desc menu[], size_t menu_size);
 
-void parse_input();
+int parse_input(int input, size_t menu_size);
 
 void flush();
 
-void remove_ending_newline();
-
 void reset_current_fd();
 
-void print_column_data_int(int offset, int data_width, int data);
-void print_column_data_int_nl(int offset, int data_width, int data);
-
-void print_column_data_str(int offset, int data_width, char *data);
 void print_section_titles();
 
+void print_symbol_titles();
 
-//void print_padded_column_data();
+char *resolve_type(int sec_type);
+
+char *resolve_flag(int sec_flag);
+
+char *resolve_section_name(char *section_names, int sh_idx);
+
+int find_symtab_idx();
+
+void show_compiled_code();
 
 void toggle_debug_mode() {
     if (s.debug_mode) {
@@ -87,8 +117,7 @@ void toggle_debug_mode() {
 void examine_elf_file() {
     printf("elf file name: ");
     char *elf_file_name = malloc(MAX_FILE_NAME_LENGTH * sizeof(char));
-//    scanf("%s", elf_file_name);
-    elf_file_name = "abc";
+    scanf("%s", elf_file_name);
     if (s.current_fd != -1) {
         if (close(s.current_fd) == -1) {
             perror("could not close current file descriptor");
@@ -96,9 +125,7 @@ void examine_elf_file() {
             exit(errno);
         }
     }
-//    printf("read file %s\n", elf_file_name);
     s.current_fd = open(elf_file_name, O_RDONLY);
-//    printf("opened %s\n", elf_file_name);
     if (s.current_fd == -1) {
         perror("could not open elf file");
         reset_current_fd();
@@ -116,32 +143,51 @@ void examine_elf_file() {
         reset_current_fd();
         exit(errno);
     }
-//    write(STDOUT_FILENO, p, 100);
-//    printf("mapped ehdr\n");
     s.elf_headers->elf_header = (Elf32_Ehdr *) s.map_start;
-    s.elf_headers->sec_header = (Elf32_Shdr * )(s.map_start + s.elf_headers->elf_header->e_shoff);
-    s.elf_headers->prog_header = (Elf32_Phdr * )(s.map_start + s.elf_headers->elf_header->e_phoff);
-//    printf("mapped shdr\n");
-    print_column_data_str(0, COL_WIDTH, "Elf Header");
-//    printf("ELF Header:\n");
-    printf("  %s:%3x%3x%3x\n", "Magic", s.elf_headers->elf_header->e_ident[EI_MAG0],
-           s.elf_headers->elf_header->e_ident[EI_MAG1],
-           s.elf_headers->elf_header->e_ident[EI_MAG2]);
+    s.elf_headers->sec_header = (Elf32_Shdr *) (s.map_start + s.elf_headers->elf_header->e_shoff);
+    s.elf_headers->prog_header = (Elf32_Phdr *) (s.map_start + s.elf_headers->elf_header->e_phoff);
+    int sym_tab_idx = find_symtab_idx();
+    s.elf_headers->sym_header = (Elf32_Sym *) (s.map_start + s.elf_headers->sec_header[sym_tab_idx].sh_offset);
+
+    printf("%s", "Elf Header:\n");
     // TODO: print data encoding scheme
-    printf("Entry point address: %#10x\n", s.elf_headers->elf_header->e_entry);
-    print_column_data_str(1 * INDENT_SIZE, COL_WIDTH, "Start of section headers:");
-    print_column_data_int_nl(0, COL_WIDTH, s.elf_headers->elf_header->e_shoff);
-    print_column_data_str(1 * INDENT_SIZE, COL_WIDTH, "Number of section headers:");
-    print_column_data_int_nl(0, COL_WIDTH, s.elf_headers->elf_header->e_shnum);
-    print_column_data_str(1 * INDENT_SIZE, COL_WIDTH, "Size of section headers:");
-    print_column_data_int_nl(0, COL_WIDTH, s.elf_headers->elf_header->e_shentsize);
-    print_column_data_str(1 * INDENT_SIZE, COL_WIDTH, "Start of program headers:");
-    print_column_data_int_nl(0, COL_WIDTH, s.elf_headers->elf_header->e_phoff);
-    print_column_data_str(1 * INDENT_SIZE, COL_WIDTH, "Number of program headers:");
-    print_column_data_int_nl(0, COL_WIDTH, s.elf_headers->elf_header->e_phnum);
-    print_column_data_str(1 * INDENT_SIZE, COL_WIDTH, "Size of program headers:");
-    print_column_data_int_nl(0, COL_WIDTH, s.elf_headers->elf_header->e_phentsize);
-    printf("%d\n", s.elf_headers->sec_header->sh_entsize);
+    union int_str_union {
+        int int_value;
+        char *str_value;
+    };
+    struct elf_print_format {
+        char *format;
+        int width;
+        union int_str_union value;
+    };
+
+    struct elf_print_format current_fd_elf[18] = {
+            {"%-*s",   5,          {.str_value = "Magic: "}},
+            {"%-*x",   2,          {.int_value = s.elf_headers->elf_header->e_ident[EI_MAG0]}},
+            {"%-*x",   2,          {.int_value = s.elf_headers->elf_header->e_ident[EI_MAG1]}},
+            {"%-*x\n", 2,          {.int_value = s.elf_headers->elf_header->e_ident[EI_MAG2]}},
+            {"%-*s",    COL_WIDTH, {.str_value = "Entry point address: "}},
+            {"%-#*x\n", COL_WIDTH, {.int_value = s.elf_headers->elf_header->e_entry}},
+            {"%-*s",    COL_WIDTH, {.str_value = "Start of section headers: "}},
+            {"%-*d\n",  COL_WIDTH, {.int_value = s.elf_headers->elf_header->e_shoff}},
+            {"%-*s",    COL_WIDTH, {.str_value = "Number of section headers: "}},
+            {"%-*d\n",  COL_WIDTH, {.int_value = s.elf_headers->elf_header->e_shnum}},
+            {"%-*s",    COL_WIDTH, {.str_value = "Size of section headers: "}},
+            {"%-*d\n",  COL_WIDTH, {.int_value = s.elf_headers->elf_header->e_shentsize}},
+            {"%-*s",    COL_WIDTH, {.str_value = "Start of program headers: "}},
+            {"%-*d\n",  COL_WIDTH, {.int_value = s.elf_headers->elf_header->e_phoff}},
+            {"%-*s",    COL_WIDTH, {.str_value = "Number of program headers: "}},
+            {"%-*d\n",  COL_WIDTH, {.int_value = s.elf_headers->elf_header->e_phnum}},
+            {"%-*s",    COL_WIDTH, {.str_value = "Size of program headers: "}},
+            {"%-*d\n",  COL_WIDTH, {.int_value = s.elf_headers->elf_header->e_phentsize}},
+    };
+
+    size_t elf_rows_num = sizeof(current_fd_elf) / sizeof(current_fd_elf[0]);
+
+    for (int i = 0; i < elf_rows_num; ++i) {
+        printf("%*s", INDENT_SIZE, " ");
+        printf(current_fd_elf[i].format, current_fd_elf[i].width, current_fd_elf[i].value);
+    }
 }
 
 void reset_current_fd() {
@@ -150,74 +196,146 @@ void reset_current_fd() {
     s.current_fd = -1;
 }
 
-void remove_ending_newline(char *str) {
-    int size = 0;
-    while (str[size++]) {}
-    str[size - 2] = '\0';
-}
-
 void print_section_names() {
     if (s.current_fd == -1) {
-        printf("There is no elf file currently opened");
+        printf("There is no elf file currently opened\n");
         return;
     }
-    int INDEX_WIDTH = 5;
-    int NAME_WIDTH = 18;
-    int TYPE_WIDTH = 16;
-    int ADDR_WIDTH = 10;
-    int OFF_WIDTH = 7;
-    int SIZE_WIDTH = 6;
-    int FLAGS_WIDTH = 2;
-    int offset = INDENT_SIZE;
 
-    Elf32_Shdr *curr = s.elf_headers->sec_header;
+
+    void *sections_names = s.map_start + s.elf_headers->sec_header[s.elf_headers->elf_header->e_shstrndx].sh_offset;
 
     printf("Section Headers:\n");
     print_section_titles();
-    printf("[Nr]")
-    for (int i = 0; i < s.elf_headers->elf_header->e_shnum; ++i) {
-        while (offset--)
-            printf(" ");
-        printf("[%*d]",2, i);
-
-//        print_column_data_st4r(1 * INDENT_SIZE, 1, "[");
-//        print_column_data_int(0, 2, i);
-//        print_column_data_str(0, 2, "]");
-//        print_column_data_str(0, NAME_WIDTH, s.elf_headers->sec_header->sh_name);
-        printf("%*d ", TYPE_WIDTH, curr->sh_type);
-        printf("%0*x ", ADDR_WIDTH, curr->sh_addr);
-        printf("%0*x ", OFF_WIDTH, curr->sh_offset);
-        printf("%0*x ", SIZE_WIDTH, curr->sh_size);
-        printf("%0*x ", FLAGS_WIDTH, curr->sh_entsize);
-        printf("%*x ", FLAGS_WIDTH, curr->sh_flags);
-        printf("%*x ", FLAGS_WIDTH, curr->sh_link);
-        printf("%*d ", FLAGS_WIDTH, curr->sh_info);
-        printf("%*x\n", FLAGS_WIDTH, curr->sh_addralign);
-//        print_column_data_int(0, TYPE_WIDTH, curr->sh_type);
-//        print_column_data_int(0, ADDR_WIDTH, curr->sh_addr);
-//        print_column_data_int(0, OFF_WIDTH, curr->sh_offset);
-//        print_column_data_int(0, SIZE_WIDTH, curr->sh_size);
-//        print_column_data_int(0, FLAGS_WIDTH, curr->sh_entsize);
-//        print_column_data_int(0, FLAGS_WIDTH, curr->sh_flags);
-//        print_column_data_int(0, FLAGS_WIDTH, curr->sh_link);
-//        print_column_data_int(0, FLAGS_WIDTH, curr->sh_info);
-//        print_column_data_int_nl(0, FLAGS_WIDTH, curr->sh_addralign);
-
-        offset = INDENT_SIZE;
-        curr++;
+    for (int i = 1; i < s.elf_headers->elf_header->e_shnum; ++i) {
+        printf("%*s", INDENT_SIZE, " ");
+        printf("[%*d]", 2, i);
+        printf(" %-*s", sec_col_sizes.NAME, (char *) (sections_names + s.elf_headers->sec_header[i].sh_name));
+        printf(" %-*s", sec_col_sizes.TYPE, resolve_type(s.elf_headers->sec_header[i].sh_type));
+        printf(" %0*x", sec_col_sizes.ADDR, s.elf_headers->sec_header[i].sh_addr);
+        printf(" %0*x", sec_col_sizes.OFFSET, s.elf_headers->sec_header[i].sh_offset);
+        printf(" %0*x", sec_col_sizes.SIZE, s.elf_headers->sec_header[i].sh_size);
+        printf(" %0*x ", sec_col_sizes.FLAGS, s.elf_headers->sec_header[i].sh_entsize);
+        printf(" %*s", sec_col_sizes.FLAGS, resolve_flag(s.elf_headers->sec_header[i].sh_flags));
+        printf(" %*d", sec_col_sizes.FLAGS, s.elf_headers->sec_header[i].sh_link);
+        printf(" %*d", sec_col_sizes.FLAGS, s.elf_headers->sec_header[i].sh_info);
+        printf(" %*d\n", sec_col_sizes.FLAGS, s.elf_headers->sec_header[i].sh_addralign);
     }
 }
 
-void print_section_titles(){
-    int offest = INDENT_SIZE;
-    while (offest--)
-        printf(" ");
-    printf("[Nr]");
-    printf("%*s", )
+void print_section_titles() {
+    printf("%*s", INDENT_SIZE, " ");
+    printf("%-*s", sec_col_sizes.INDEX, "[Nr]");
+    printf("%-*s", sec_col_sizes.NAME, "Name");
+    printf(" %-*s", sec_col_sizes.TYPE, "Type");
+    printf(" %-*s", sec_col_sizes.ADDR, "Addr");
+    printf(" %-*s", sec_col_sizes.OFFSET, "Off");
+    printf(" %-*s", sec_col_sizes.SIZE, "Size");
+    printf(" %-*s", sec_col_sizes.FLAGS, "ES");
+    printf(" %-*s", sec_col_sizes.FLAGS, "Flg");
+    printf(" %-*s", sec_col_sizes.FLAGS, "Lk");
+    printf(" %-*s", sec_col_sizes.FLAGS, "Inf");
+    printf(" %-*s", sec_col_sizes.FLAGS, "Al");
+    printf("\n");
+}
+
+char *resolve_type(int sec_type) {
+    // for some reason the 'man elf' is not updated
+    if (sec_type == SHT_GNU_HASH)
+        return "GNU_HASH";
+    if (sec_type == SHT_GNU_versym)
+        return "VERSYM";
+    if (sec_type == SHT_GNU_verneed)
+        return "VERNEED";
+    if (sec_type == SHT_INIT_ARRAY)
+        return "INIT_ARRAY";
+    if (sec_type == SHT_FINI_ARRAY)
+        return "FINI_ARRAY";
+    return section_types[sec_type];
+}
+
+char *resolve_flag(int sec_flag) {
+    char *flags = malloc(8);
+    int i = 1;
+    for (int j = 0; j < 8; ++j) {
+        if ((sec_flag & i) == i)
+            strncat(flags, section_flags + j, 1);
+        i = i << 1;
+    }
+    return flags;
 }
 
 void print_symbols() {
-    printf("not implemented yed");
+    if (s.current_fd == -1) {
+        printf("There is no elf file currently opened\n");
+        return;
+    }
+
+    int sym_tab_idx = find_symtab_idx();
+    if (sym_tab_idx == -1){
+        perror("could not find symtab section header index");
+        exit(errno);
+    }
+
+    int symbol_num = (int) (s.elf_headers->sec_header[sym_tab_idx].sh_size / s.elf_headers->sec_header[sym_tab_idx].sh_entsize);
+    char *symbol_names = (char *) (s.map_start + s.elf_headers->sec_header[s.elf_headers->sec_header[sym_tab_idx].sh_link].sh_offset);
+    char *sections_names = (char *) (s.map_start + s.elf_headers->sec_header[s.elf_headers->elf_header->e_shstrndx].sh_offset);
+
+    printf("`Symbol table '.symtab' contains %d entries:\n", symbol_num);
+    print_symbol_titles();
+    for (int j = 1; j < symbol_num; j++) {
+        printf("%*s", INDENT_SIZE, " ");
+        printf("%-*d", sym_col_sizes.INDEX, j);
+        printf(" %0*x", sym_col_sizes.VALUE, s.elf_headers->sym_header[j].st_value);
+        printf(" %-*d", sym_col_sizes.SECTION_INDEX, s.elf_headers->sym_header[j].st_shndx);
+        char *curr_section_name = resolve_section_name(sections_names, s.elf_headers->sym_header[j].st_shndx);
+        printf(" %-*s", sym_col_sizes.SECTION_NAME, curr_section_name);
+        if (s.elf_headers->sym_header[j].st_info == STT_SECTION) {
+            printf(" %-*s\n", sym_col_sizes.SYMBOL_NAME, curr_section_name);
+            continue;
+        }
+        printf(" %-*s\n", sym_col_sizes.SYMBOL_NAME, symbol_names + s.elf_headers->sym_header[j].st_name);
+    }
+}
+
+void print_symbol_titles() {
+    // [Ndx] value section_index section_name symbol_name
+    printf("%*s", INDENT_SIZE, " ");
+    printf("%-*s", sym_col_sizes.INDEX, "[Ndx]");
+    printf(" %-*s", sym_col_sizes.VALUE, "Value");
+    printf(" %-*s", sym_col_sizes.SECTION_INDEX, "section_index");
+    printf(" %-*s", sym_col_sizes.SECTION_NAME, "section_name");
+    printf(" %-*s\n", sym_col_sizes.SYMBOL_NAME, "symbol_name");
+}
+
+int find_symtab_idx(){
+    for (int i = 0; i < s.elf_headers->elf_header->e_shnum; ++i) {
+        if (s.elf_headers->sec_header[i].sh_type == SHT_SYMTAB)
+            return i;
+    }
+    return -1;
+}
+
+
+char *resolve_section_name(char *section_names, int sh_idx) {
+    switch (sh_idx) {
+        case SHN_ABS:
+            return "ABS";
+        case SHN_UNDEF:
+            return "UND";
+        case SHN_LORESERVE:
+            return "LRS";
+        case SHN_AFTER:
+            return "AFT";
+        case SHN_HIPROC:
+            return "HIP";
+        case SHN_COMMON:
+            return "CMN";
+        case SHN_HIRESERVE:
+            return "HRS";
+        default:
+            return section_names + s.elf_headers->sec_header[sh_idx].sh_name;
+    }
 }
 
 void quit() {
@@ -226,23 +344,19 @@ void quit() {
 
 void print_menu(struct fun_desc menu[], size_t menu_size) {
     int i;
+    printf("\n");
     for (i = 0; i < menu_size; i++) {
         printf("%d-%s\n", i, menu[i].name);
     }
     printf("Choose option: ");
 }
 
-void parse_input(int input, size_t menu_size) {
-//    if (!isdigit(input)) {
-//        printf("ASCII - %d which corresponds to char '%c' is Not a valid input\n", input + '0', input + '0');
-//        exit(1);
-//    }
-//    *input = *input - '0';
-    if (input < 0 || input > menu_size) {
+int parse_input(int input, size_t menu_size) {
+    if (input < 0 || input >= menu_size) {
         printf("Not within bounds\n");
-        exit(1);
+        return 1;
     }
-    printf("Within bounds\n");
+    return 0;
 }
 
 void flush() {
@@ -252,25 +366,20 @@ void flush() {
     }
 }
 
-void print_column_data_int_nl(int offset, int data_width, int data) {
-    while (offset--)
-        printf(" ");
-    printf("%-*d\n", data_width, data);
+int find_main_idx(){
+    int sym_tab_idx = find_symtab_idx();
+    int sym_num = (int) (s.elf_headers->sec_header[sym_tab_idx].sh_size / s.elf_headers->sec_header[sym_tab_idx].sh_entsize);
+    char *symbol_names = (char *) (s.map_start + s.elf_headers->sec_header[s.elf_headers->sec_header[sym_tab_idx].sh_link].sh_offset);
+    for (int i = 1; i < sym_num; ++i) {
+        if (strcmp(symbol_names + s.elf_headers->sym_header[i].st_name, "main") == 0)
+            return i;
+    }
+    return -1;
 }
 
-void print_column_data_int_dec(int offset, int data_width, int data) {
-    while (offset--)
-        printf(" ");
-    printf("%-*d", data_width, data);
-}
+void show_compiled_code(){
+    int main_idx = find_main_idx();
 
-void print_column_data_str(int offset, int data_width, char *data) {
-    struct winsize w;
-    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
-//    size_t data_length = strlen(data);
-    while (offset--)
-        printf(" ");
-    printf("%-*s", data_width, data);
 
 }
 
@@ -281,15 +390,16 @@ int main(int argc, char **argv) {
             {"Examine ELF File",    examine_elf_file},
             {"Print Section Names", print_section_names},
             {"Print Symbols",       print_symbols},
-            {"Quit",                quit},
+            {"Show Compiled Code", show_compiled_code},
+            {"Quit",                quit}
     };
     size_t menu_length = sizeof(menu) / sizeof(menu[0]);
     do {
         print_menu(menu, menu_length);
         scanf("%d", &input);
         flush();
-        parse_input(input, menu_length);
+        if (parse_input(input, menu_length))
+            continue;
         menu[input].fun();
-/*		carray = map(carray, base_len, (*menu)[input].fun);*/
     } while (1);
 }
