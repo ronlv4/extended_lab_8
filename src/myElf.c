@@ -2,15 +2,11 @@
 #include "stdio.h"
 #include "string.h"
 #include "unistd.h"
-#include "ctype.h"
 #include "elf.h"
 #include "errno.h"
 #include "fcntl.h"
-#include "sys/types.h"
-#include "sys/stat.h"
 #include "sys/stat.h"
 #include "sys/mman.h"
-#include "sys/ioctl.h"
 
 #define MAX_FILE_NAME_LENGTH 1024
 #define COL_WIDTH 30
@@ -102,8 +98,6 @@ char *resolve_section_name(char *section_names, int sh_idx);
 
 int find_symtab_idx();
 
-void show_compiled_code();
-
 void toggle_debug_mode() {
     if (s.debug_mode) {
         s.debug_mode = 0;
@@ -127,7 +121,7 @@ void examine_elf_file() {
     }
     s.current_fd = open(elf_file_name, O_RDONLY);
     if (s.current_fd == -1) {
-        perror("could not open elf file");
+        perror("could not open file");
         reset_current_fd();
         exit(errno);
     }
@@ -136,13 +130,21 @@ void examine_elf_file() {
         reset_current_fd();
         exit(errno);
     }
-//    printf("read stats %s\n", elf_file_name);
 
     if ((s.map_start = mmap(0, s.fd_stat.st_size, PROT_READ, MAP_SHARED, s.current_fd, 0)) == MAP_FAILED) {
         perror("mmap failed");
         reset_current_fd();
         exit(errno);
     }
+    printf("%s\n", (char *) s.map_start);
+    void * elf_bytes =  &(0x7f454c46);
+
+    if (memcmp(s.map_start, elf_bytes, 4) != 0){
+        printf("not an elf file\n");
+        reset_current_fd();
+        exit(1);
+    }
+
     s.elf_headers->elf_header = (Elf32_Ehdr *) s.map_start;
     s.elf_headers->sec_header = (Elf32_Shdr *) (s.map_start + s.elf_headers->elf_header->e_shoff);
     s.elf_headers->prog_header = (Elf32_Phdr *) (s.map_start + s.elf_headers->elf_header->e_phoff);
@@ -161,11 +163,12 @@ void examine_elf_file() {
         union int_str_union value;
     };
 
-    struct elf_print_format current_fd_elf[18] = {
+    struct elf_print_format current_fd_elf[19] = {
             {"%-*s",   5,          {.str_value = "Magic: "}},
             {"%-*x",   2,          {.int_value = s.elf_headers->elf_header->e_ident[EI_MAG0]}},
             {"%-*x",   2,          {.int_value = s.elf_headers->elf_header->e_ident[EI_MAG1]}},
-            {"%-*x\n", 2,          {.int_value = s.elf_headers->elf_header->e_ident[EI_MAG2]}},
+            {"%-*x",   2,          {.int_value = s.elf_headers->elf_header->e_ident[EI_MAG2]}},
+            {"%-*x\n", 2,          {.int_value = s.elf_headers->elf_header->e_ident[EI_MAG3]}},
             {"%-*s",    COL_WIDTH, {.str_value = "Entry point address: "}},
             {"%-#*x\n", COL_WIDTH, {.int_value = s.elf_headers->elf_header->e_entry}},
             {"%-*s",    COL_WIDTH, {.str_value = "Start of section headers: "}},
@@ -366,23 +369,6 @@ void flush() {
     }
 }
 
-int find_main_idx(){
-    int sym_tab_idx = find_symtab_idx();
-    int sym_num = (int) (s.elf_headers->sec_header[sym_tab_idx].sh_size / s.elf_headers->sec_header[sym_tab_idx].sh_entsize);
-    char *symbol_names = (char *) (s.map_start + s.elf_headers->sec_header[s.elf_headers->sec_header[sym_tab_idx].sh_link].sh_offset);
-    for (int i = 1; i < sym_num; ++i) {
-        if (strcmp(symbol_names + s.elf_headers->sym_header[i].st_name, "main") == 0)
-            return i;
-    }
-    return -1;
-}
-
-void show_compiled_code(){
-    int main_idx = find_main_idx();
-
-
-}
-
 int main(int argc, char **argv) {
     int input;
     struct fun_desc menu[] = {
@@ -390,7 +376,6 @@ int main(int argc, char **argv) {
             {"Examine ELF File",    examine_elf_file},
             {"Print Section Names", print_section_names},
             {"Print Symbols",       print_symbols},
-            {"Show Compiled Code", show_compiled_code},
             {"Quit",                quit}
     };
     size_t menu_length = sizeof(menu) / sizeof(menu[0]);
