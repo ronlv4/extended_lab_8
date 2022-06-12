@@ -43,6 +43,8 @@ struct symbols_col_sizes {
         8, 8, 15, 20, 20
 };
 
+char *data_scheme[3] = {"Unknown data format.", "Two's complement, little-endian.", "Two's complement, big-endian."};
+
 char *section_types[15] = {"NULL", "PROGBITS", "SYMTAB", "STRTAB", "RELA", "HASH", "DYNAMIC", "NOTE", "NOBITS", "REL",
                            "SHLIB", "DYNSYM", "LOPROC", "LOUSER", "HIUSER"};
 
@@ -150,7 +152,6 @@ void examine_elf_file() {
     s.elf_headers->sym_header = (Elf32_Sym *) (s.map_start + s.elf_headers->sec_header[sym_tab_idx].sh_offset);
 
     printf("%s", "Elf Header:\n");
-    // TODO: print data encoding scheme
     union int_str_union {
         int int_value;
         char *str_value;
@@ -161,12 +162,14 @@ void examine_elf_file() {
         union int_str_union value;
     };
 
-    struct elf_print_format current_fd_elf[19] = {
+    struct elf_print_format current_fd_elf[21] = {
             {"%-*s",   5,          {.str_value = "Magic: "}},
             {"%-*x",   2,          {.int_value = s.elf_headers->elf_header->e_ident[EI_MAG0]}},
             {"%-*x",   2,          {.int_value = s.elf_headers->elf_header->e_ident[EI_MAG1]}},
             {"%-*x",   2,          {.int_value = s.elf_headers->elf_header->e_ident[EI_MAG2]}},
             {"%-*x\n", 2,          {.int_value = s.elf_headers->elf_header->e_ident[EI_MAG3]}},
+            {"%-*s",    COL_WIDTH, {.str_value = "Data: "}},
+            {"%-*s\n",  COL_WIDTH, {.str_value = data_scheme[s.elf_headers->elf_header->e_ident[EI_DATA]]}},
             {"%-*s",    COL_WIDTH, {.str_value = "Entry point address: "}},
             {"%-#*x\n", COL_WIDTH, {.int_value = s.elf_headers->elf_header->e_entry}},
             {"%-*s",    COL_WIDTH, {.str_value = "Start of section headers: "}},
@@ -274,8 +277,8 @@ void print_symbols() {
 
     int sym_tab_idx = find_symtab_idx();
     if (sym_tab_idx == -1){
-        perror("could not find symtab section header index");
-        exit(errno);
+        printf("could not find symtab section header index");
+        return;
     }
 
     int symbol_num = (int) (s.elf_headers->sec_header[sym_tab_idx].sh_size / s.elf_headers->sec_header[sym_tab_idx].sh_entsize);
@@ -340,6 +343,7 @@ char *resolve_section_name(char *section_names, int sh_idx) {
 }
 
 void quit() {
+    reset_current_fd();
     exit(0);
 }
 
