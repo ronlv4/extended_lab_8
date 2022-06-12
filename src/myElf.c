@@ -136,11 +136,9 @@ void examine_elf_file() {
         reset_current_fd();
         exit(errno);
     }
-    printf("%s\n", (char *) s.map_start);
-    void * elf_bytes =  &(0x7f454c46);
 
-    if (memcmp(s.map_start, elf_bytes, 4) != 0){
-        printf("not an elf file\n");
+    if (memcmp(s.map_start, "\x7F\x45\x4c\x46", 4) != 0){
+        printf("Error: not an elf file\n");
         reset_current_fd();
         exit(1);
     }
@@ -286,7 +284,7 @@ void print_symbols() {
 
     printf("`Symbol table '.symtab' contains %d entries:\n", symbol_num);
     print_symbol_titles();
-    for (int j = 1; j < symbol_num; j++) {
+    for (int j = 0; j < symbol_num; j++) {
         printf("%*s", INDENT_SIZE, " ");
         printf("%-*d", sym_col_sizes.INDEX, j);
         printf(" %0*x", sym_col_sizes.VALUE, s.elf_headers->sym_header[j].st_value);
